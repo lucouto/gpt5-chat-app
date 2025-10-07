@@ -1,132 +1,144 @@
+import os
+import json
+import redis
+
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from flask_httpauth import HTTPBasicAuth
 from werkzeug.security import generate_password_hash, check_password_hash
-import os
-import json
-import redis
 
 from openai import AzureOpenAI
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
 
-# =============================================================================
-# APP & AUTH SETUP
-# =============================================================================
-app = Flask(__name__, static_folder='static')
+# =========================
+# REQUIRED ENVIRONMENT VARS
+# =========================
+REQUIRED = [
+    "AZURE_OPENAI_ENDPOINT",
+    "AZURE_OPENAI_API_KEY",
+    "AZURE_OPENAI_CHAT_DEPLOYMENT",     # e.g. your chat model deployment name
+    "AZURE_EMBEDDING_DEPLOYMENT"        # e.g. text-embedding-3-small
+]
+missing = [v for v in REQUIRED if not os.getenv(v)]
+if missing:
+    raise EnvironmentError(f"Missing environment variables: {', '.join(missing)}")
+
+# Optional Search vars (all three must be set to enable RAG)
+AZURE_SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_ENDPOINT")
+AZURE_SEARCH_API_KEY  = os.getenv("AZURE_SEARCH_API_KEY")
+AZURE_SEARCH_INDEX    = os.getenv("AZURE_SEARCH_INDEX")
+
+# Optional Redis
+REDIS_URL = os.getenv("REDIS_URL")
+
+# Basic-Auth
+AUTH_USERNAME = os.getenv("AUTH_USERNAME", "admin")
+AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "changeme")
+
+# Extract mandatory vars
+AZURE_OPENAI_ENDPOINT          = os.getenv("AZURE_OPENAI_ENDPOINT")
+AZURE_OPENAI_API_KEY           = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_OPENAI_CHAT_DEPLOYMENT   = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
+AZURE_EMBEDDING_DEPLOYMENT     = os.getenv("AZURE_EMBEDDING_DEPLOYMENT")
+
+# =============
+# FLASK SETUP
+# =============
+app = Flask(__name__, static_folder="static")
 CORS(app)
 auth = HTTPBasicAuth()
 
-# Basic‐Auth users
+# =============
+# BASIC AUTH
+# =============
 users = {
-    os.getenv("AUTH_USERNAME", "admin"): generate_password_hash(
-        os.getenv("AUTH_PASSWORD", "changeme")
-    )
+    AUTH_USERNAME: generate_password_hash(AUTH_PASSWORD)
 }
 
 @auth.verify_password
 def verify_password(username, password):
-    if username in users and check_password_hash(users.get(username), password):
+    if username in users and check_password_hash(users[username], password):
         return username
     return None
 
-# =============================================================================
+# ======================
 # AZURE OPENAI CLIENT
-# =============================================================================
-endpoint = os.getenv(
-    "ENDPOINT_URL", "https://ccn-openai-sweden.openai.azure.com/"
-)
-deployment = os.getenv("DEPLOYMENT_NAME", "gpt-5-chat")
-subscription_key = os.getenv("AZURE_OPENAI_API_KEY")
-if not subscription_key:
-    raise ValueError("AZURE_OPENAI_API_KEY environment variable is required")
-
-client = AzureOpenAI(
-    azure_endpoint=endpoint,
-    api_key=subscription_key,
+# ======================
+openai_client = AzureOpenAI(
+    azure_endpoint=AZURE_OPENAI_ENDPOINT,
+    api_key=AZURE_OPENAI_API_KEY,
     api_version="2025-01-01-preview",
 )
+print("✅ Azure OpenAI client initialized")
 
-# =============================================================================
-# AZURE COGNITIVE SEARCH CLIENT
-# =============================================================================
-search_endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
-search_key = os.getenv("AZURE_SEARCH_API_KEY")
-search_index = os.getenv("AZURE_SEARCH_INDEX")
-embedding_deployment = os.getenv("EMBEDDING_DEPLOYMENT", "text-embedding-3-small")
-
+# ====================================
+# AZURE COGNITIVE SEARCH (optional)
+# ====================================
 search_client = None
-if search_endpoint and search_key and search_index:
+if AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_API_KEY and AZURE_SEARCH_INDEX:
     try:
         search_client = SearchClient(
-            endpoint=search_endpoint,
-            index_name=search_index,
-            credential=AzureKeyCredential(search_key),
+            endpoint=AZURE_SEARCH_ENDPOINT,
+            index_name=AZURE_SEARCH_INDEX,
+            credential=AzureKeyCredential(AZURE_SEARCH_API_KEY),
         )
-        print("✅ Azure Cognitive Search connected for RAG")
+        print("✅ Azure Cognitive Search client initialized")
     except Exception as e:
-        print(f"⚠️ Azure Search connection failed: {e}")
+        print(f"⚠️ Azure Search init failed: {e}")
+else:
+    print("📝 Azure Search not configured; /api/search will return 500")
 
-# =============================================================================
-# REDIS (optional) FOR PERSISTENT CONVERSATIONS
-# =============================================================================
+# ======================
+# REDIS (optional)
+# ======================
 redis_client = None
 redis_enabled = False
-if os.getenv("REDIS_URL"):
+if REDIS_URL:
     try:
         redis_client = redis.from_url(
-            os.getenv("REDIS_URL"),
-            decode_responses=True,
-            socket_connect_timeout=5,
-            socket_timeout=5,
+            REDIS_URL, decode_responses=True,
+            socket_timeout=5, socket_connect_timeout=5
         )
         redis_client.ping()
         redis_enabled = True
-        print("✅ Redis connected successfully - Conversations will be persistent")
+        print("✅ Redis initialized")
     except Exception as e:
-        print(f"⚠️  Redis connection failed: {e}")
-        redis_client = None
-        redis_enabled = False
+        print(f"⚠️ Redis init failed: {e}")
 else:
-    print("📝 REDIS_URL not set - Using in-memory storage (conversations will be lost on restart)")
+    print("📝 REDIS_URL not set; conversations will live in memory")
 
+# In-memory fallback
 conversations_memory = {}
 
-def get_conversation(conversation_id):
-    if redis_enabled and redis_client:
+def get_conversation(conv_id):
+    if redis_enabled:
         try:
-            cached = redis_client.get(f"conv:{conversation_id}")
-            if cached:
-                return json.loads(cached)
-        except Exception as e:
-            print(f"Redis get error: {e}")
-    return conversations_memory.get(conversation_id)
+            data = redis_client.get(f"conv:{conv_id}")
+            if data:
+                return json.loads(data)
+        except Exception:
+            pass
+    return conversations_memory.get(conv_id)
 
-def save_conversation(conversation_id, conversation_data):
-    conversations_memory[conversation_id] = conversation_data
-    if redis_enabled and redis_client:
+def save_conversation(conv_id, conv_data):
+    conversations_memory[conv_id] = conv_data
+    if redis_enabled:
         try:
-            redis_client.setex(
-                f"conv:{conversation_id}",
-                604800,
-                json.dumps(conversation_data)
-            )
+            redis_client.setex(f"conv:{conv_id}", 604_800, json.dumps(conv_data))
             return True
-        except Exception as e:
-            print(f"Redis save error: {e}")
-            return False
+        except Exception:
+            pass
     return False
 
-def delete_conversation(conversation_id):
-    if conversation_id in conversations_memory:
-        del conversations_memory[conversation_id]
-    if redis_enabled and redis_client:
+def delete_conversation(conv_id):
+    conversations_memory.pop(conv_id, None)
+    if redis_enabled:
         try:
-            redis_client.delete(f"conv:{conversation_id}")
+            redis_client.delete(f"conv:{conv_id}")
             return True
-        except Exception as e:
-            print(f"Redis delete error: {e}")
-            return False
+        except Exception:
+            pass
     return False
 
 def create_new_conversation():
@@ -134,84 +146,80 @@ def create_new_conversation():
         {
             "role": "system",
             "content": [
-                {
-                    "type": "text",
-                    "text": "You are an AI assistant that helps people find information."
-                }
+                { "type": "text",
+                  "text": "You are an AI assistant that helps people find information." }
             ]
         }
     ]
 
-# =============================================================================
-# HELPER: EMBEDDING + VECTOR SEARCH
-# =============================================================================
-def retrieve_context(user_query):
-    """Return a plain text blob of top-k matching chunks (for chat)."""
+# =====================================
+# CONTEXT RETRIEVAL HELPER (chat use)
+# =====================================
+def retrieve_context(user_query: str) -> str:
+    """Return a big text blob of the top-3 document chunks."""
     if not search_client:
         return ""
     try:
-        embedding = client.embeddings.create(
-            model=embedding_deployment,
+        emb = openai_client.embeddings.create(
+            model=AZURE_EMBEDDING_DEPLOYMENT,
             input=user_query
         ).data[0].embedding
 
-        results = search_client.search(
+        docs = search_client.search(
             search_text=None,
             vector_queries=[{
-                "kind": "vector",
-                "vector": embedding,
+                "kind":   "vector",
+                "vector": emb,
                 "fields": "text_vector",
-                "k": 3
+                "k":      3
             }],
-            select=["chunk", "title"]
+            select=["title", "chunk"]
         )
-
-        chunks = [doc["chunk"] for doc in results]
+        chunks = [d["chunk"] for d in docs]
         return "\n\n".join(chunks)
     except Exception as e:
-        print(f"RAG retrieval error: {e}")
+        app.logger.error(f"RAG retrieval error: {e}")
         return ""
 
-# =============================================================================
-# NEW RAG LOOKUP TOOL ENDPOINT
-# =============================================================================
-@app.route('/api/search', methods=['POST'])
+# =====================================
+# NEW: VECTOR‐SEARCH “TOOL” ENDPOINT
+# =====================================
+@app.route("/api/search", methods=["POST"])
 @auth.login_required
-def vector_search():
-    """Accepts { "query": "..." } and returns top titles+chunks as JSON."""
-    data = request.get_json(silent=True) or {}
-    query = data.get("query")
-    if not query:
+def api_search():
+    """
+    POST { "query": "..." }
+    → 200 { "results": [ { title, chunk }, ... ] }
+    → 400 if missing query
+    → 500 if search not configured or on error
+    """
+    body = request.get_json(silent=True) or {}
+    q = body.get("query", "").strip()
+    if not q:
         return jsonify({"error": "query is required"}), 400
 
     if not search_client:
         return jsonify({"error": "RAG search is not configured"}), 500
 
     try:
-        # 1) get embedding
-        embedding = client.embeddings.create(
-            model=embedding_deployment,
-            input=query
+        emb = openai_client.embeddings.create(
+            model=AZURE_EMBEDDING_DEPLOYMENT,
+            input=q
         ).data[0].embedding
 
-        # 2) vector search
-        results = search_client.search(
+        docs = search_client.search(
             search_text=None,
             vector_queries=[{
-                "kind": "vector",
-                "vector": embedding,
+                "kind":   "vector",
+                "vector": emb,
                 "fields": "text_vector",
-                "k": 3
+                "k":      3
             }],
             select=["title", "chunk"]
         )
-
         hits = [
-            {
-                "title": doc.get("title", ""),
-                "chunk": doc.get("chunk", "")
-            }
-            for doc in results
+            {"title": d.get("title",""), "chunk": d.get("chunk","")}
+            for d in docs
         ]
         return jsonify({"results": hits}), 200
 
@@ -219,111 +227,90 @@ def vector_search():
         app.logger.error(f"RAG search error: {e}")
         return jsonify({"error": str(e)}), 500
 
-# =============================================================================
-# EXISTING UI / CHAT ENDPOINTS
-# =============================================================================
-@app.route('/')
+# =====================================
+# EXISTING: CHAT UI ENDPOINTS
+# =====================================
+@app.route("/")
 @auth.login_required
 def index():
-    return send_from_directory('static', 'index.html')
+    return send_from_directory("static", "index.html")
 
-@app.route('/api/chat', methods=['POST'])
+@app.route("/api/chat", methods=["POST"])
 @auth.login_required
 def chat():
-    try:
-        data = request.json or {}
-        user_message    = data.get('message', '')
-        conversation_id = data.get('conversation_id', 'default')
+    body = request.get_json(silent=True) or {}
+    user_msg = body.get("message", "").strip()
+    conv_id  = body.get("conversation_id", "default")
 
-        if not user_message:
-            return jsonify({'error': 'Message is required'}), 400
+    if not user_msg:
+        return jsonify({"error": "message is required"}), 400
 
-        conversation = get_conversation(conversation_id)
-        if not conversation:
-            conversation = create_new_conversation()
+    conv = get_conversation(conv_id) or create_new_conversation()
 
-        # Inject RAG context
-        context = retrieve_context(user_message)
-        if context:
-            conversation.append({
-                "role": "system",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": f"Relevant context from documents:\n{context}"
-                    }
-                ]
-            })
-
-        # Add user message
-        conversation.append({
-            "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": user_message
-                }
-            ]
+    # Inject RAG context
+    ctx = retrieve_context(user_msg)
+    if ctx:
+        conv.append({
+            "role": "system",
+            "content": [{ "type": "text",
+                          "text": f"Relevant context from documents:\n{ctx}" }]
         })
 
-        # Call chat completion
-        completion = client.chat.completions.create(
-            model=deployment,
-            messages=conversation,
-            max_completion_tokens=16384,
+    # Add user message
+    conv.append({
+        "role": "user",
+        "content": [{ "type": "text", "text": user_msg }]
+    })
+
+    # Ask Azure OpenAI
+    try:
+        completion = openai_client.chat.completions.create(
+            model=AZURE_OPENAI_CHAT_DEPLOYMENT,
+            messages=conv,
+            max_completion_tokens=4_096,
             stop=None,
             stream=False
         )
-        assistant_message = completion.choices[0].message.content
-
-        # Save response
-        conversation.append({
-            "role": "assistant",
-            "content": [
-                {
-                    "type": "text",
-                    "text": assistant_message
-                }
-            ]
-        })
-        saved_to_redis = save_conversation(conversation_id, conversation)
-
-        return jsonify({
-            'response': assistant_message,
-            'conversation_id': conversation_id,
-            'storage': 'redis' if saved_to_redis else 'memory'
-        })
-
+        assistant_msg = completion.choices[0].message.content
     except Exception as e:
-        app.logger.error(f"Error in chat endpoint: {e}")
-        return jsonify({'error': str(e)}), 500
+        app.logger.error(f"Chat completion error: {e}")
+        return jsonify({"error": str(e)}), 500
 
-@app.route('/api/reset', methods=['POST'])
-@auth.login_required
-def reset_conversation():
-    try:
-        data = request.json or {}
-        conversation_id = data.get('conversation_id', 'default')
-        deleted = delete_conversation(conversation_id)
-        return jsonify({
-            'message': 'Conversation reset successfully',
-            'storage': 'redis' if deleted else 'memory'
-        })
-    except Exception as e:
-        app.logger.error(f"Error in reset endpoint: {e}")
-        return jsonify({'error': str(e)}), 500
+    # Save to history
+    conv.append({
+        "role": "assistant",
+        "content": [{ "type": "text", "text": assistant_msg }]
+    })
+    saved = save_conversation(conv_id, conv)
 
-@app.route('/api/health', methods=['GET'])
-def health():
     return jsonify({
-        'status': 'healthy',
-        'redis':   'connected'   if redis_enabled else 'disabled',
-        'azure_openai': 'configured' if subscription_key else 'not configured',
-        'azure_search': 'configured' if search_client   else 'not configured'
+        "response": assistant_msg,
+        "conversation_id": conv_id,
+        "storage": "redis" if saved else "memory"
     })
 
-# =============================================================================
+@app.route("/api/reset", methods=["POST"])
+@auth.login_required
+def reset_conv():
+    body = request.get_json(silent=True) or {}
+    conv_id = body.get("conversation_id", "default")
+    deleted = delete_conversation(conv_id)
+    return jsonify({
+        "message": "Conversation reset",
+        "storage": "redis" if deleted else "memory"
+    })
+
+@app.route("/api/health", methods=["GET"])
+def health():
+    return jsonify({
+        "status":      "healthy",
+        "redis":       "connected"    if redis_enabled    else "disabled",
+        "azure_openai":"configured"   if AZURE_OPENAI_API_KEY else "not configured",
+        "azure_search":"configured"   if search_client     else "not configured"
+    })
+
+# ===========
 # MAIN
-# =============================================================================
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
+# ===========
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=False)
