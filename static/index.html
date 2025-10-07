@@ -110,6 +110,45 @@
             border-bottom-left-radius: 4px;
         }
 
+        /* Markdown styling for assistant messages */
+        .message.assistant .message-content h1,
+        .message.assistant .message-content h2,
+        .message.assistant .message-content h3 {
+            margin: 8px 0;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .message.assistant .message-content p {
+            margin: 6px 0;
+            line-height: 1.4;
+        }
+
+        .message.assistant .message-content ul {
+            margin: 6px 0 6px 20px;
+            padding: 0;
+            list-style-type: disc;
+        }
+
+        .message.assistant .message-content ol {
+            margin: 6px 0 6px 20px;
+            padding: 0;
+            list-style-type: decimal;
+        }
+
+        .message.assistant .message-content li {
+            margin-bottom: 4px;
+        }
+
+        .message.assistant .message-content a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        .message.assistant .message-content a:hover {
+            text-decoration: underline;
+        }
+
         .chat-input-container {
             padding: 20px;
             background: white;
@@ -213,7 +252,8 @@
             display: block;
         }
     </style>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Markdown parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
     <div class="chat-container">
@@ -258,17 +298,16 @@
             const contentDiv = document.createElement('div');
             contentDiv.className = 'message-content';
             
-	    if (!isUser) {
-        	// Render GPT's Markdown output as HTML
-        	contentDiv.innerHTML = marked.parse(content);
-    	    } else {
-        	// For user messages, keep plain text
-        	contentDiv.textContent = content;
-    	    }
+            if (!isUser) {
+                // Render GPT's Markdown output as HTML
+                contentDiv.innerHTML = marked.parse(content);
+            } else {
+                // For user messages, keep plain text
+                contentDiv.textContent = content;
+            }
             
             messageDiv.appendChild(contentDiv);
             messagesContainer.appendChild(messageDiv);
-            
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
         
