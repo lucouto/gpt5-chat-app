@@ -1,200 +1,89 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GPT-5 Chat</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-        .main-container {
-            display: flex;
-            width: 100%;
-            max-width: 1200px;
-            height: 100vh;
-        }
-        /* Sidebar */
-        .sidebar {
-            width: 250px;
-            background: #2d2d2d;
-            color: white;
-            display: flex;
-            flex-direction: column;
-            padding: 10px;
-        }
-        .sidebar h2 { font-size: 18px; margin-bottom: 10px; }
-        .chat-list { flex: 1; overflow-y: auto; }
-        .chat-list-item {
-            padding: 8px;
-            border-radius: 6px;
-            cursor: default;
-            margin-bottom: 4px;
-            background: #3a3a3a;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 5px;
-        }
-        .chat-list-item:hover { background: #505050; }
-        .chat-action-btn {
-            background: none;
-            border: none;
-            color: white;
-            cursor: pointer;
-            font-size: 14px;
-        }
-        .new-chat-btn {
-            background: #667eea;
-            border: none;
-            padding: 8px;
-            border-radius: 6px;
-            color: white;
-            cursor: pointer;
-            font-size: 14px;
-            margin-top: 10px;
-        }
-        /* Chat container */
-        .chat-container {
-            flex: 1;
-            background: white;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-        .chat-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .chat-header h1 { font-size: 20px; font-weight: 600; }
-        .reset-btn {
-            background: rgba(255, 255, 255, 0.2);
-            border: none;
-            color: white;
-            padding: 8px 16px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 14px;
-        }
-        .chat-messages {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px;
-            background: #f7f9fc;
-        }
-        .message { margin-bottom: 16px; display: flex; animation: fadeIn 0.3s ease-in; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px);} to { opacity: 1; transform: translateY(0);} }
-        .message.user { justify-content: flex-end; }
-        .message-content {
-            max-width: 70%;
-            padding: 12px 16px;
-            border-radius: 12px;
-            word-wrap: break-word;
-        }
-        .message.user .message-content {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border-bottom-right-radius: 4px;
-        }
-        .message.assistant .message-content {
-            background: white;
-            color: #333;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-            border-bottom-left-radius: 4px;
-        }
-        /* Markdown styling */
-        .message.assistant .message-content h1,
-        .message.assistant .message-content h2,
-        .message.assistant .message-content h3 {
-            margin: 8px 0;
-            font-weight: bold;
-            color: #333;
-        }
-        .message.assistant .message-content p { margin: 6px 0; line-height: 1.4; }
-        .message.assistant .message-content ul { margin: 6px 0 6px 20px; list-style-type: disc; }
-        .message.assistant .message-content ol { margin: 6px 0 6px 20px; list-style-type: decimal; }
-        .message.assistant .message-content a { color: #667eea; text-decoration: none; }
-        .message.assistant .message-content a:hover { text-decoration: underline; }
-        .chat-input-container { padding: 20px; background: white; border-top: 1px solid #e1e8ed; }
-        .chat-input-form { display: flex; gap: 12px; }
-        .chat-input {
-            flex: 1;
-            padding: 12px 16px;
-            border: 2px solid #e1e8ed;
-            border-radius: 12px;
-            font-size: 15px;
-            outline: none;
-        }
-        .send-btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 12px;
-            cursor: pointer;
-            font-size: 15px;
-            font-weight: 600;
-        }
-        .error-message {
-            background: #fee;
-            color: #c33;
-            padding: 12px;
-            border-radius: 8px;
-            margin: 10px 20px;
-            display: none;
-        }
-        .error-message.show { display: block; }
-	/* Mobile-friendly layout for screens <= 768px wide */
-@media (max-width: 768px) {
-    .main-container {
-        flex-direction: column;
-    }
-
-    .sidebar {
-        width: 100%;
-        order: 2; /* Move below chat */
-    }
-
-    .chat-container {
-        width: 100%;
-        order: 1;
-    }
-
-    .chat-header h1 {
-        font-size: 18px;
-    }
-
-    .chat-input {
-        font-size: 16px;
-    }
-
-    .send-btn {
-        font-size: 16px;
-        padding: 10px;
-    }
-
-    .message-content {
-        max-width: 90%;
-        font-size: 15px;
-    }
-
-    /* Optional: hide sidebar by default and add a toggle */
-    .sidebar {
-        display: none;
-    }
-    .sidebar.open {
-        display: block;
-    }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPT-5 Chat</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background: #f7f9fc;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+.main-container {
+    display: flex;
+    width: 100%;
+    max-width: 1200px;
+    height: 100vh;
+    position: relative;
+}
+.sidebar {
+    width: 250px;
+    background: #2d2d2d;
+    color: white;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+}
+.sidebar h2 { font-size: 18px; margin-bottom: 10px; }
+.chat-list { flex: 1; overflow-y: auto; }
+.chat-list-item {
+    padding: 8px;
+    border-radius: 6px;
+    cursor: default;
+    margin-bottom: 4px;
+    background: #3a3a3a;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 5px;
+}
+.chat-list-item:hover { background: #505050; }
+.chat-action-btn {
+    background: none;
+    border: none;
+    color: white;
+    cursor: pointer;
+    font-size: 14px;
+}
+.new-chat-btn {
+    background: #667eea;
+    border: none;
+    padding: 8px;
+    border-radius: 6px;
+    color: white;
+    cursor: pointer;
+    font-size: 14px;
+    margin-top: 10px;
+}
+.chat-container {
+    flex: 1;
+    background: white;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.chat-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.chat-header h1 { font-size: 20px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+.reset-btn {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
 }
 .menu-btn {
     background: none;
@@ -202,10 +91,81 @@
     color: white;
     font-size: 24px;
     cursor: pointer;
-    margin-right: 10px;
 }
+.chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    background: #f7f9fc;
+}
+.message { margin-bottom: 16px; display: flex; animation: fadeIn 0.3s ease-in; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px);} to { opacity: 1; transform: translateY(0);} }
+.message.user { justify-content: flex-end; }
+.message-content {
+    max-width: 70%;
+    padding: 12px 16px;
+    border-radius: 12px;
+    word-wrap: break-word;
+}
+.message.user .message-content {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-bottom-right-radius: 4px;
+}
+.message.assistant .message-content {
+    background: white;
+    color: #333;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    border-bottom-left-radius: 4px;
+}
+.message.assistant .message-content h1,
+.message.assistant .message-content h2,
+.message.assistant .message-content h3 {
+    margin: 8px 0;
+    font-weight: bold;
+}
+.message.assistant .message-content p { margin: 6px 0; line-height: 1.4; }
+.message.assistant .message-content ul { margin: 6px 0 6px 20px; list-style-type: disc; }
+.message.assistant .message-content ol { margin: 6px 0 6px 20px; list-style-type: decimal; }
+.message.assistant .message-content a { color: #667eea; text-decoration: none; }
+.message.assistant .message-content a:hover { text-decoration: underline; }
+.chat-input-container {
+    padding: 20px;
+    background: white;
+    border-top: 1px solid #e1e8ed;
+}
+.chat-input-form { display: flex; gap: 12px; }
+.chat-input {
+    flex: 1;
+    padding: 12px 16px;
+    border: 2px solid #e1e8ed;
+    border-radius: 12px;
+    font-size: 15px;
+    outline: none;
+}
+.send-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 600;
+}
+.error-message {
+    background: #fee;
+    color: #c33;
+    padding: 12px;
+    border-radius: 8px;
+    margin: 10px 20px;
+    display: none;
+}
+.error-message.show { display: block; }
 
+/* Mobile adjustments */
 @media (max-width: 768px) {
+    .main-container { flex-direction: column; }
     .sidebar {
         display: none;
         position: absolute;
@@ -213,20 +173,12 @@
         left: 0;
         width: 250px;
         height: 100%;
-        background: #2d2d2d;
         z-index: 1000;
-        box-shadow: 2px 0 5px rgba(0,0,0,0.3);
-        padding: 10px;
     }
-    .sidebar.open {
-        display: block;
-    }
-    .main-container {
-        flex-direction: column;
-    }
+    .sidebar.open { display: flex; }
 }
-    </style>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</style>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
 <div class="main-container">
@@ -237,7 +189,7 @@
     </div>
     <div class="chat-container">
         <div class="chat-header">
-            <h1>GPT-5 Chat</h1>
+            <h1><button class="menu-btn" onclick="toggleSidebar()">☰</button> GPT-5 Chat</h1>
             <button class="reset-btn" onclick="resetConversation()">Reset Chat</button>
         </div>
         <div class="error-message" id="errorMessage"></div>
@@ -249,16 +201,15 @@
             </form>
         </div>
     </div>
-    <div class="chat-header">
-    	<button class="menu-btn" onclick="toggleSidebar()">☰</button>
-    	<h1>GPT-5 Chat</h1>
-    <button class="reset-btn" onclick="resetConversation()">Reset Chat</button>
-</div>
 </div>
 
 <script>
 let conversationId = 'session_' + Date.now();
 registerConversationId(conversationId);
+
+function toggleSidebar() {
+    document.querySelector('.sidebar').classList.toggle('open');
+}
 
 function getChatName(id) {
     const names = JSON.parse(localStorage.getItem('chat_names') || '{}');
@@ -285,14 +236,12 @@ function deleteChat(id) {
     let sessions = JSON.parse(localStorage.getItem('chat_sessions') || '[]');
     sessions = sessions.filter(s => s !== id);
     localStorage.setItem('chat_sessions', JSON.stringify(sessions));
-    const names = JSON.parse(localStorage.getItem('chat_names') || '{}');
+    let names = JSON.parse(localStorage.getItem('chat_names') || '{}');
     delete names[id];
     localStorage.setItem('chat_names', JSON.stringify(names));
     localStorage.removeItem(`chat_${id}`);
+    if (conversationId === id) startNewChat(false);
     updateChatList();
-    if (conversationId === id) {
-        startNewChat();
-    }
 }
 
 function updateChatList() {
@@ -305,24 +254,15 @@ function updateChatList() {
         const nameSpan = document.createElement('span');
         nameSpan.textContent = getChatName(id);
         nameSpan.style.flex = '1';
-        nameSpan.onclick = () => loadConversation(id);
+        nameSpan.onclick = () => { loadConversation(id); if (window.innerWidth <= 768) toggleSidebar(); };
         const renameBtn = document.createElement('button');
         renameBtn.textContent = '✏️';
         renameBtn.className = 'chat-action-btn';
-        renameBtn.onclick = () => {
-            const newName = prompt('Enter new name for this chat:', getChatName(id));
-            if (newName && newName.trim() !== '') {
-                setChatName(id, newName.trim());
-            }
-        };
+        renameBtn.onclick = (e) => { e.stopPropagation(); const newName = prompt('Enter new name:', getChatName(id)); if (newName) setChatName(id, newName.trim()); };
         const deleteBtn = document.createElement('button');
         deleteBtn.textContent = '🗑️';
         deleteBtn.className = 'chat-action-btn';
-        deleteBtn.onclick = () => {
-            if (confirm('Delete this chat?')) {
-                deleteChat(id);
-            }
-        };
+        deleteBtn.onclick = (e) => { e.stopPropagation(); if (confirm('Delete this chat?')) deleteChat(id); };
         item.appendChild(nameSpan);
         item.appendChild(renameBtn);
         item.appendChild(deleteBtn);
@@ -357,12 +297,12 @@ function loadConversation(id) {
     });
 }
 
-function startNewChat() {
+function startNewChat(showPrompt = true) {
     conversationId = 'session_' + Date.now();
     registerConversationId(conversationId);
-    const defaultName = prompt('Enter a name for your new chat:', conversationId);
-    if (defaultName && defaultName.trim() !== '') {
-        setChatName(conversationId, defaultName.trim());
+    if (showPrompt) {
+        const defaultName = prompt('Enter a name for your new chat:', conversationId);
+        if (defaultName) setChatName(conversationId, defaultName.trim());
     }
     document.getElementById('chatMessages').innerHTML = '';
 }
@@ -408,7 +348,7 @@ async function sendMessage(event) {
         } else {
             showError(data.error || 'An error occurred');
         }
-    } catch (error) {
+    } catch {
         showError('Failed to connect to server');
     } finally {
         sendBtn.disabled = false;
@@ -427,32 +367,9 @@ function showError(message) {
     errorDiv.classList.add('show');
     setTimeout(() => errorDiv.classList.remove('show'), 5000);
 }
-function toggleSidebar() {
-    document.querySelector('.sidebar').classList.toggle('open');
-}
 
-// Init
 updateChatList();
-function loadConversation(id) {
-    conversationId = id;
-    const saved = localStorage.getItem(`chat_${id}`);
-    const messagesContainer = document.getElementById('chatMessages');
-    messagesContainer.innerHTML = '';
-    if (!saved) return;
-    JSON.parse(saved).forEach(msg => {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${msg.isUser ? 'user' : 'assistant'}`;
-        const contentDiv = document.createElement('div');
-        contentDiv.className = 'message-content';
-        contentDiv.innerHTML = msg.content;
-        messageDiv.appendChild(contentDiv);
-        messagesContainer.appendChild(messageDiv);
-    });
-    // Close sidebar on mobile after selecting a chat
-    if (window.innerWidth <= 768) {
-        document.querySelector('.sidebar').classList.remove('open');
-    }
-}
+loadConversation(conversationId);
 document.getElementById('messageInput').focus();
 </script>
 </body>
