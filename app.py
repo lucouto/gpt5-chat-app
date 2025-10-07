@@ -15,7 +15,7 @@ app = Flask(__name__, static_folder='static')
 CORS(app)
 auth = HTTPBasicAuth()
 
-# Authentication credentials (from environment variables)
+# Authentication credentials
 users = {
     os.getenv("AUTH_USERNAME", "admin"): generate_password_hash(os.getenv("AUTH_PASSWORD", "changeme"))
 }
@@ -26,25 +26,28 @@ def verify_password(username, password):
         return username
     return None
 
-# Initialize Azure OpenAI client
-endpoint = os.getenv("ENDPOINT_URL", "https://ccn-openai-sweden.openai.azure.com/")
-deployment = os.getenv("DEPLOYMENT_NAME", "gpt-5-chat")
-subscription_key = os.getenv("AZURE_OPENAI_API_KEY")
-
-if not subscription_key:
-    raise ValueError("AZURE_OPENAI_API_KEY environment variable is required")
-
-client = AzureOpenAI(
-    azure_endpoint=endpoint,
-    api_key=subscription_key,
+# === Azure OpenAI Clients ===
+# Chat client for GPT-5 completions
+chat_client = AzureOpenAI(
+    azure_endpoint=os.getenv("ENDPOINT_URL"),  # ccnsweden endpoint
+    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
     api_version="2025-01-01-preview",
 )
 
-# === RAG ADDITION: Azure Cognitive Search client ===
+# Embedding client for RAG vector search
+embedding_client = AzureOpenAI(
+    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),  # openai-cnjeunes endpoint
+    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+    api_version="2025-01-01-preview",
+)
+
+deployment = os.getenv("DEPLOYMENT_NAME", "gpt-5-chat")
+embedding_deployment = os.getenv("EMBEDDING_DEPLOYMENT", "text-embedding-3-small")
+
+# === Azure Cognitive Search Client ===
 search_endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
 search_key = os.getenv("AZURE_SEARCH_API_KEY")
 search_index = os.getenv("AZURE_SEARCH_INDEX")
-embedding_deployment = os.getenv("EMBEDDING_DEPLOYMENT", "text-embedding-3-small")
 
 search_client = None
 if search_endpoint and search_key and search_index:
@@ -58,7 +61,7 @@ if search_endpoint and search_key and search_index:
     except Exception as e:
         print(f"⚠️ Azure Search connection failed: {e}")
 
-# Initialize Redis client for persistent storage
+# === Redis Client ===
 redis_client = None
 redis_enabled = False
 
@@ -70,23 +73,20 @@ if os.getenv("REDIS_URL"):
             socket_connect_timeout=5,
             socket_timeout=5
         )
-        # Test connection
         redis_client.ping()
         redis_enabled = True
         print("✅ Redis connected successfully - Conversations will be persistent")
     except Exception as e:
-        print(f"⚠️  Redis connection failed: {e}")
-        print("📝 Falling back to in-memory storage (conversations will be lost on restart)")
+        print(f"⚠️ connection failed: {e}")
         redis_client = None
         redis_enabled = False
 else:
-    print("📝 REDIS_URL not set - Using in-memory storage (conversations will be lost on restart)")
+    print("📝 REDIS_URL not set - Using in-memory storage")
 
-# In-memory backup storage (used when Redis is unavailable)
+# In-memory backup
 conversations_memory = {}
 
 def get_conversation(conversation_id):
-    """Retrieve conversation from Redis or memory"""
     if redis_enabled and redis_client:
         try:
             cached = redis_client.get(f"conv:{conversation_id}")
@@ -97,7 +97,6 @@ def get_conversation(conversation_id):
     return conversations_memory.get(conversation_id)
 
 def save_conversation(conversation_id, conversation_data):
-    """Save conversation to Redis and memory"""
     conversations_memory[conversation_id] = conversation_data
     if redis_enabled and redis_client:
         try:
@@ -109,7 +108,6 @@ def save_conversation(conversation_id, conversation_data):
     return False
 
 def delete_conversation(conversation_id):
-    """Delete conversation from Redis and memory"""
     if conversation_id in conversations_memory:
         del conversations_memory[conversation_id]
     if redis_enabled and redis_client:
@@ -122,7 +120,6 @@ def delete_conversation(conversation_id):
     return False
 
 def create_new_conversation():
-    """Create a new conversation with system prompt"""
     return [
         {
             "role": "system",
@@ -135,13 +132,12 @@ def create_new_conversation():
         }
     ]
 
-# === RAG ADDITION: Context retrieval ===
+# === RAG Context Retrieval ===
 def retrieve_context(user_query):
-    """Retrieve top matching chunks from Azure Cognitive Search"""
     if not search_client:
         return ""
     try:
-        embedding = client.embeddings.create(
+        embedding = embedding_client.embeddings.create(
             model=embedding_deployment,
             input=user_query
         ).data[0].embedding
@@ -185,7 +181,7 @@ def chat():
         if not conversation:
             conversation = create_new_conversation()
         
-        # === RAG ADDITION: Fetch context and inject into conversation ===
+        # Inject RAG context
         context = retrieve_context(user_message)
         if context:
             conversation.append({
@@ -208,12 +204,10 @@ def chat():
             ]
         })
         
-        completion = client.chat.completions.create(
+        completion = chat_client.chat.completions.create(
             model=deployment,
             messages=conversation,
-            max_completion_tokens=16384,
-            stop=None,
-            stream=False
+            max_completion_tokens=16384
         )
         
         assistant_message = completion.choices[0].message.content
@@ -261,7 +255,7 @@ def health():
     return jsonify({
         'status': 'healthy',
         'redis': redis_status,
-        'azure_openai': 'configured' if subscription_key else 'not configured',
+        'azure_openai': 'configured' if os.getenv("AZURE_OPENAI_API_KEY") else 'not configured',
         'azure_search': 'configured' if search_client else 'not configured'
     })
 
