@@ -196,6 +196,35 @@
         display: block;
     }
 }
+.menu-btn {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    margin-right: 10px;
+}
+
+@media (max-width: 768px) {
+    .sidebar {
+        display: none;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 250px;
+        height: 100%;
+        background: #2d2d2d;
+        z-index: 1000;
+        box-shadow: 2px 0 5px rgba(0,0,0,0.3);
+        padding: 10px;
+    }
+    .sidebar.open {
+        display: block;
+    }
+    .main-container {
+        flex-direction: column;
+    }
+}
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
@@ -220,6 +249,11 @@
             </form>
         </div>
     </div>
+    <div class="chat-header">
+    	<button class="menu-btn" onclick="toggleSidebar()">☰</button>
+    	<h1>GPT-5 Chat</h1>
+    <button class="reset-btn" onclick="resetConversation()">Reset Chat</button>
+</div>
 </div>
 
 <script>
@@ -393,10 +427,32 @@ function showError(message) {
     errorDiv.classList.add('show');
     setTimeout(() => errorDiv.classList.remove('show'), 5000);
 }
+function toggleSidebar() {
+    document.querySelector('.sidebar').classList.toggle('open');
+}
 
 // Init
 updateChatList();
-loadConversation(conversationId);
+function loadConversation(id) {
+    conversationId = id;
+    const saved = localStorage.getItem(`chat_${id}`);
+    const messagesContainer = document.getElementById('chatMessages');
+    messagesContainer.innerHTML = '';
+    if (!saved) return;
+    JSON.parse(saved).forEach(msg => {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${msg.isUser ? 'user' : 'assistant'}`;
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        contentDiv.innerHTML = msg.content;
+        messageDiv.appendChild(contentDiv);
+        messagesContainer.appendChild(messageDiv);
+    });
+    // Close sidebar on mobile after selecting a chat
+    if (window.innerWidth <= 768) {
+        document.querySelector('.sidebar').classList.remove('open');
+    }
+}
 document.getElementById('messageInput').focus();
 </script>
 </body>
