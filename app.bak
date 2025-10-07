@@ -7,6 +7,10 @@ import json
 import redis
 from openai import AzureOpenAI
 
+# === RAG ADDITION ===
+from azure.search.documents import SearchClient
+from azure.core.credentials import AzureKeyCredential
+
 app = Flask(__name__, static_folder='static')
 CORS(app)
 auth = HTTPBasicAuth()
@@ -35,6 +39,24 @@ client = AzureOpenAI(
     api_key=subscription_key,
     api_version="2025-01-01-preview",
 )
+
+# === RAG ADDITION: Azure Cognitive Search client ===
+search_endpoint = os.getenv("AZURE_SEARCH_ENDPOINT")
+search_key = os.getenv("AZURE_SEARCH_API_KEY")
+search_index = os.getenv("AZURE_SEARCH_INDEX")
+embedding_deployment = os.getenv("EMBEDDING_DEPLOYMENT", "text-embedding-3-small")
+
+search_client = None
+if search_endpoint and search_key and search_index:
+    try:
+        search_client = SearchClient(
+            endpoint=search_endpoint,
+            index_name=search_index,
+            credential=AzureKeyCredential(search_key)
+        )
+        print("✅ Azure Cognitive Search connected for RAG")
+    except Exception as e:
+        print(f"⚠️ Azure Search connection failed: {e}")
 
 # Initialize Redis client for persistent storage
 redis_client = None
@@ -65,7 +87,6 @@ conversations_memory = {}
 
 def get_conversation(conversation_id):
     """Retrieve conversation from Redis or memory"""
-    # Try Redis first if enabled
     if redis_enabled and redis_client:
         try:
             cached = redis_client.get(f"conv:{conversation_id}")
@@ -73,24 +94,14 @@ def get_conversation(conversation_id):
                 return json.loads(cached)
         except Exception as e:
             print(f"Redis get error: {e}")
-    
-    # Fallback to memory
     return conversations_memory.get(conversation_id)
 
 def save_conversation(conversation_id, conversation_data):
     """Save conversation to Redis and memory"""
-    # Always save to memory as backup
     conversations_memory[conversation_id] = conversation_data
-    
-    # Save to Redis if enabled
     if redis_enabled and redis_client:
         try:
-            # Save with 7 days expiration (604800 seconds)
-            redis_client.setex(
-                f"conv:{conversation_id}",
-                604800,
-                json.dumps(conversation_data)
-            )
+            redis_client.setex(f"conv:{conversation_id}", 604800, json.dumps(conversation_data))
             return True
         except Exception as e:
             print(f"Redis save error: {e}")
@@ -99,11 +110,8 @@ def save_conversation(conversation_id, conversation_data):
 
 def delete_conversation(conversation_id):
     """Delete conversation from Redis and memory"""
-    # Delete from memory
     if conversation_id in conversations_memory:
         del conversations_memory[conversation_id]
-    
-    # Delete from Redis if enabled
     if redis_enabled and redis_client:
         try:
             redis_client.delete(f"conv:{conversation_id}")
@@ -127,6 +135,36 @@ def create_new_conversation():
         }
     ]
 
+# === RAG ADDITION: Context retrieval ===
+def retrieve_context(user_query):
+    """Retrieve top matching chunks from Azure Cognitive Search"""
+    if not search_client:
+        return ""
+    try:
+        embedding = client.embeddings.create(
+            model=embedding_deployment,
+            input=user_query
+        ).data[0].embedding
+
+        results = search_client.search(
+            search_text=None,
+            vector_queries=[{
+                "kind": "vector",
+                "vector": embedding,
+                "fields": "text_vector",
+                "k": 3
+            }],
+            select=["chunk", "title"]
+        )
+
+        chunks = []
+        for doc in results:
+            chunks.append(doc["chunk"])
+        return "\n\n".join(chunks)
+    except Exception as e:
+        print(f"RAG retrieval error: {e}")
+        return ""
+
 @app.route('/')
 @auth.login_required
 def index():
@@ -143,12 +181,23 @@ def chat():
         if not user_message:
             return jsonify({'error': 'Message is required'}), 400
         
-        # Get or create conversation
         conversation = get_conversation(conversation_id)
         if not conversation:
             conversation = create_new_conversation()
         
-        # Add user message to conversation
+        # === RAG ADDITION: Fetch context and inject into conversation ===
+        context = retrieve_context(user_message)
+        if context:
+            conversation.append({
+                "role": "system",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"Relevant context from documents:\n{context}"
+                    }
+                ]
+            })
+
         conversation.append({
             "role": "user",
             "content": [
@@ -159,7 +208,6 @@ def chat():
             ]
         })
         
-        # Generate completion from Azure OpenAI
         completion = client.chat.completions.create(
             model=deployment,
             messages=conversation,
@@ -168,10 +216,8 @@ def chat():
             stream=False
         )
         
-        # Extract assistant response
         assistant_message = completion.choices[0].message.content
         
-        # Add assistant response to conversation
         conversation.append({
             "role": "assistant",
             "content": [
@@ -182,7 +228,6 @@ def chat():
             ]
         })
         
-        # Save updated conversation
         saved_to_redis = save_conversation(conversation_id, conversation)
         
         return jsonify({
@@ -201,27 +246,23 @@ def reset_conversation():
     try:
         data = request.json
         conversation_id = data.get('conversation_id', 'default')
-        
-        # Delete conversation
         deleted = delete_conversation(conversation_id)
-        
         return jsonify({
             'message': 'Conversation reset successfully',
             'storage': 'redis' if deleted else 'memory'
         })
-    
     except Exception as e:
         print(f"Error in reset endpoint: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/health', methods=['GET'])
 def health():
-    """Health check endpoint"""
     redis_status = "connected" if redis_enabled else "disabled"
     return jsonify({
         'status': 'healthy',
         'redis': redis_status,
-        'azure_openai': 'configured' if subscription_key else 'not configured'
+        'azure_openai': 'configured' if subscription_key else 'not configured',
+        'azure_search': 'configured' if search_client else 'not configured'
     })
 
 if __name__ == '__main__':

@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPT-5 Chat</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .chat-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            max-width: 800px;
+            height: 90vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chat-header h1 {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .reset-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        .reset-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f7f9fc;
+        }
+
+        .message {
+            margin-bottom: 16px;
+            display: flex;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user {
+            justify-content: flex-end;
+        }
+
+        .message-content {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            word-wrap: break-word;
+        }
+
+        .message.user .message-content {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.assistant .message-content {
+            background: white;
+            color: #333;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            border-bottom-left-radius: 4px;
+        }
+
+        .chat-input-container {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e1e8ed;
+        }
+
+        .chat-input-form {
+            display: flex;
+            gap: 12px;
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e1e8ed;
+            border-radius: 12px;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        .chat-input:focus {
+            border-color: #667eea;
+        }
+
+        .send-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .send-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            display: none;
+            padding: 12px 16px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            max-width: 70%;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .loading-dots {
+            display: flex;
+            gap: 4px;
+        }
+
+        .loading-dots span {
+            width: 8px;
+            height: 8px;
+            background: #667eea;
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+
+        .loading-dots span:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+
+        .loading-dots span:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+
+        @keyframes bounce {
+            0%, 80%, 100% {
+                transform: scale(0);
+            }
+            40% {
+                transform: scale(1);
+            }
+        }
+
+        .error-message {
+            background: #fee;
+            color: #c33;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 10px 20px;
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
+        }
+    </style>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>GPT-5 Chat</h1>
+            <button class="reset-btn" onclick="resetConversation()">Reset Chat</button>
+        </div>
+        
+        <div class="error-message" id="errorMessage"></div>
+        
+        <div class="chat-messages" id="chatMessages">
+            <div class="message assistant">
+                <div class="message-content">
+                    Hello! I'm GPT-5, powered by Azure OpenAI. How can I help you today?
+                </div>
+            </div>
+        </div>
+        
+        <div class="chat-input-container">
+            <form class="chat-input-form" onsubmit="sendMessage(event)">
+                <input 
+                    type="text" 
+                    class="chat-input" 
+                    id="messageInput" 
+                    placeholder="Type your message here..."
+                    autocomplete="off"
+                    required
+                >
+                <button type="submit" class="send-btn" id="sendBtn">Send</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let conversationId = 'session_' + Date.now();
+        
+        function addMessage(content, isUser) {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user' : 'assistant'}`;
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            
+	    if (!isUser) {
+        	// Render GPT's Markdown output as HTML
+        	contentDiv.innerHTML = marked.parse(content);
+    	    } else {
+        	// For user messages, keep plain text
+        	contentDiv.textContent = content;
+    	    }
+            
+            messageDiv.appendChild(contentDiv);
+            messagesContainer.appendChild(messageDiv);
+            
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        
+        function showLoading() {
+            const messagesContainer = document.getElementById('chatMessages');
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'message assistant';
+            loadingDiv.id = 'loadingMessage';
+            loadingDiv.innerHTML = `
+                <div class="message-content loading show">
+                    <div class="loading-dots">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                </div>
+            `;
+            messagesContainer.appendChild(loadingDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        
+        function hideLoading() {
+            const loadingMessage = document.getElementById('loadingMessage');
+            if (loadingMessage) {
+                loadingMessage.remove();
+            }
+        }
+        
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = message;
+            errorDiv.classList.add('show');
+            setTimeout(() => {
+                errorDiv.classList.remove('show');
+            }, 5000);
+        }
+        
+        async function sendMessage(event) {
+            event.preventDefault();
+            
+            const input = document.getElementById('messageInput');
+            const sendBtn = document.getElementById('sendBtn');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            addMessage(message, true);
+            input.value = '';
+            sendBtn.disabled = true;
+            showLoading();
+            
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        conversation_id: conversationId
+                    })
+                });
+                
+                const data = await response.json();
+                
+                hideLoading();
+                
+                if (response.ok) {
+                    addMessage(data.response, false);
+                } else {
+                    showError(data.error || 'An error occurred');
+                }
+            } catch (error) {
+                hideLoading();
+                showError('Failed to connect to the server');
+                console.error('Error:', error);
+            } finally {
+                sendBtn.disabled = false;
+                input.focus();
+            }
+        }
+        
+        async function resetConversation() {
+            if (!confirm('Are you sure you want to reset the conversation?')) {
+                return;
+            }
+            
+            try {
+                await fetch('/api/reset', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        conversation_id: conversationId
+                    })
+                });
+                
+                conversationId = 'session_' + Date.now();
+                
+                const messagesContainer = document.getElementById('chatMessages');
+                messagesContainer.innerHTML = `
+                    <div class="message assistant">
+                        <div class="message-content">
+                            Hello! I'm GPT-5, powered by Azure OpenAI. How can I help you today?
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                showError('Failed to reset conversation');
+                console.error('Error:', error);
+            }
+        }
+        
+        document.getElementById('messageInput').focus();
+    </script>
+</body>
+</html>
