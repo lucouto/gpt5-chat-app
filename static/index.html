@@ -213,6 +213,7 @@
             display: block;
         }
     </style>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
     <div class="chat-container">
@@ -256,7 +257,14 @@
             
             const contentDiv = document.createElement('div');
             contentDiv.className = 'message-content';
-            contentDiv.textContent = content;
+            
+	    if (!isUser) {
+        	// Render GPT's Markdown output as HTML
+        	contentDiv.innerHTML = marked.parse(content);
+    	    } else {
+        	// For user messages, keep plain text
+        	contentDiv.textContent = content;
+    	    }
             
             messageDiv.appendChild(contentDiv);
             messagesContainer.appendChild(messageDiv);
