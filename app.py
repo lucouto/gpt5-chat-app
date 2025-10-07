@@ -30,14 +30,14 @@ def verify_password(username, password):
 # Chat client for GPT-5 completions
 chat_client = AzureOpenAI(
     azure_endpoint=os.getenv("ENDPOINT_URL"),  # ccnsweden endpoint
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+    api_key=os.getenv("AZURE_OPENAI_API_KEY_CHAT"),
     api_version="2025-01-01-preview",
 )
 
 # Embedding client for RAG vector search
 embedding_client = AzureOpenAI(
     azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),  # openai-cnjeunes endpoint
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+    api_key=os.getenv("AZURE_OPENAI_API_KEY_EMBED"),
     api_version="2025-01-01-preview",
 )
 
