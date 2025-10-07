@@ -154,6 +154,48 @@
             display: none;
         }
         .error-message.show { display: block; }
+	/* Mobile-friendly layout for screens <= 768px wide */
+@media (max-width: 768px) {
+    .main-container {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        width: 100%;
+        order: 2; /* Move below chat */
+    }
+
+    .chat-container {
+        width: 100%;
+        order: 1;
+    }
+
+    .chat-header h1 {
+        font-size: 18px;
+    }
+
+    .chat-input {
+        font-size: 16px;
+    }
+
+    .send-btn {
+        font-size: 16px;
+        padding: 10px;
+    }
+
+    .message-content {
+        max-width: 90%;
+        font-size: 15px;
+    }
+
+    /* Optional: hide sidebar by default and add a toggle */
+    .sidebar {
+        display: none;
+    }
+    .sidebar.open {
+        display: block;
+    }
+}
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
